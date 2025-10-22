@@ -12,18 +12,14 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
-
+import android.annotation.TargetApi;
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
-import androidx.fragment.app.Fragment;
-import androidx.recyclerview.widget.DividerItemDecoration;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
+import androidx.annotation.RequiresApi;
 import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
 import cn.pda.serialport.Tools;
-
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Message;
@@ -546,8 +542,13 @@ public class InventoryFragment extends BaseFragment {
             }
         }
     }
-
+    @RequiresApi(api = Build.VERSION_CODES.Q)
+    @TargetApi(Build.VERSION_CODES.Q)
     private void saveFileToDownloads(File sourceFile, String fileName) throws IOException {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            throw new UnsupportedOperationException("saveFileToDownloads requires API 29+");
+        }
+
         ContentResolver resolver = mainActivity.getContentResolver();
         ContentValues values = new ContentValues();
         values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
