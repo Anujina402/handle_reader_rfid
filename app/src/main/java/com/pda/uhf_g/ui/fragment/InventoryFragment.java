@@ -1,12 +1,17 @@
 package com.pda.uhf_g.ui.fragment;
 import android.Manifest;
 import android.content.BroadcastReceiver;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.MediaStore;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
@@ -53,6 +58,11 @@ import com.pda.uhf_g.util.UtilSound;
 import com.uhf.api.cls.Reader;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -469,31 +479,31 @@ public class InventoryFragment extends BaseFragment {
         return recordList;
     }
 
-    public void notifySystemToScan(String filePath) {
-        Intent intent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
-        File file = new File(filePath);
-        Uri uri = Uri.fromFile(file);
-        intent.setData(uri);
-        mainActivity.sendBroadcast(intent);
+    private void notifySystemToScan(File file) {
+        MediaScannerConnection.scanFile(mainActivity,
+                new String[]{file.getAbsolutePath()}, null, null);
     }
 
     SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH-mm-ss");
 
     @OnClick(R.id.button_excel)
     public void fab_excel() {
-        if (!isReader) {
-            if (ContextCompat.checkSelfPermission(mainActivity, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    == PackageManager.PERMISSION_GRANTED) {
-                exportInventoryToExcel();
-            } else {
-                requestStoragePermission();
-            }
+        if (isReader) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+                ContextCompat.checkSelfPermission(mainActivity, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        != PackageManager.PERMISSION_GRANTED) {
+            requestStoragePermission();
         } else {
-//            ToastUtils.showText(getResources().getString(R.string.read_card_being));
+            exportInventoryToExcel();
         }
     }
 
     private void requestStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return;
+        }
         if (shouldShowRequestPermissionRationale(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
             showToast(R.string.export_excel_need_permission);
         }
@@ -501,20 +511,75 @@ public class InventoryFragment extends BaseFragment {
     }
 
     private void exportInventoryToExcel() {
-        String filePath = Environment.getExternalStorageDirectory() + "/Download/";
+        if (tagInfoList.isEmpty()) {
+            showToast("No Data");
+            return;
+        }
         String fileName = "Tag_" + dateFormat.format(new Date()) + ".xls";
         String[] title = {"Index", "Type", "EPC", "TID", "UserData", "ReservedData", "TotalCount"};
-        if (tagInfoList.size() > 0) {
-            try {
-                ExcelUtil.initExcel(filePath, fileName, title);
-                ExcelUtil.writeObjListToExcel(getRecordData(tagInfoList), filePath + fileName);
-                showToast("Export success " + "Path=" + filePath + fileName);
-                notifySystemToScan(filePath + fileName);
-            } catch (Exception ex) {
-                showToast("Export Failed");
+        File tempFile = null;
+        try {
+            File cacheDir = new File(mainActivity.getCacheDir(), "excel_exports");
+            tempFile = ExcelUtil.initExcel(cacheDir, fileName, title);
+            ExcelUtil.writeObjListToExcel(getRecordData(tagInfoList), tempFile);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                saveFileToDownloads(tempFile, fileName);
+                showToast(getString(R.string.export_success_downloads, fileName));
+            } else {
+                @SuppressWarnings("deprecation")
+                File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                if (!downloadsDir.exists() && !downloadsDir.mkdirs()) {
+                    showToast(getString(R.string.export_failed));
+                    return;
+                }
+                File targetFile = new File(downloadsDir, fileName);
+                copyFile(tempFile, targetFile);
+                notifySystemToScan(targetFile);
+                showToast(getString(R.string.export_success_path, targetFile.getAbsolutePath()));
             }
-        } else {
-            showToast("No Data");
+        } catch (IOException ex) {
+            Log.e("InventoryFragment", "Failed to export Excel", ex);
+            showToast(getString(R.string.export_failed));
+        } finally {
+            if (tempFile != null && tempFile.exists()) {
+                boolean ignored = tempFile.delete();
+            }
+        }
+    }
+
+    private void saveFileToDownloads(File sourceFile, String fileName) throws IOException {
+        ContentResolver resolver = mainActivity.getContentResolver();
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+        values.put(MediaStore.MediaColumns.MIME_TYPE, "application/vnd.ms-excel");
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+        Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+        if (uri == null) {
+            throw new IOException("Failed to create MediaStore record");
+        }
+        try (OutputStream out = resolver.openOutputStream(uri);
+             InputStream in = new FileInputStream(sourceFile)) {
+            if (out == null) {
+                throw new IOException("Failed to open output stream for " + uri);
+            }
+            byte[] buffer = new byte[8192];
+            int length;
+            while ((length = in.read(buffer)) != -1) {
+                out.write(buffer, 0, length);
+            }
+            out.flush();
+        }
+    }
+
+    private void copyFile(File source, File destination) throws IOException {
+        try (InputStream in = new FileInputStream(source);
+             OutputStream out = new FileOutputStream(destination)) {
+            byte[] buffer = new byte[8192];
+            int length;
+            while ((length = in.read(buffer)) != -1) {
+                out.write(buffer, 0, length);
+            }
+            out.flush();
         }
     }
 
@@ -523,7 +588,7 @@ public class InventoryFragment extends BaseFragment {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_WRITE_EXTERNAL_STORAGE) {
+        if (requestCode == REQUEST_WRITE_EXTERNAL_STORAGE && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 exportInventoryToExcel();
             } else {
