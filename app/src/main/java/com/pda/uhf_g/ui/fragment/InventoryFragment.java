@@ -4,10 +4,12 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.DividerItemDecoration;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -16,9 +18,6 @@ import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
 import cn.pda.serialport.Tools;
-import me.weyye.hipermission.HiPermission;
-import me.weyye.hipermission.PermissionCallback;
-import me.weyye.hipermission.PermissionItem;
 
 import android.os.Environment;
 import android.os.Handler;
@@ -114,6 +113,7 @@ public class InventoryFragment extends BaseFragment {
 
     public UHFRManager mUhfrManager;//uhf
 
+    private static final int REQUEST_WRITE_EXTERNAL_STORAGE = 2001;
     private final int MSG_INVENROTY = 1 ;
 
     private final int MSG_INVENROTY_TIME = 1001 ;
@@ -482,49 +482,53 @@ public class InventoryFragment extends BaseFragment {
     @OnClick(R.id.button_excel)
     public void fab_excel() {
         if (!isReader) {
-            List<PermissionItem> permissonItems = new ArrayList<PermissionItem>();
-            permissonItems.add(new PermissionItem(Manifest.permission.WRITE_EXTERNAL_STORAGE, mainActivity.getResources().getString(R.string.store), me.weyye.hipermission.R.drawable.permission_ic_storage));
-            HiPermission.create(mainActivity)
-                    .title(mainActivity.getResources().getString(R.string.export_excel_need_permission))
-                    .permissions(permissonItems)
-                    .checkMutiPermission(new PermissionCallback() {
-                        @Override
-                        public void onClose() {
-                            Log.e("onClose", "onClose");
-                        }
-
-                        @Override
-                        public void onFinish() {
-                            Log.e("onFinish", "onFinish");
-                            String filePath = Environment.getExternalStorageDirectory() + "/Download/";
-                            String fileName = "Tag_" + dateFormat.format(new Date()) + ".xls";
-                            String[] title = {"Index", "Type", "EPC", "TID", "UserData", "ReservedData", "TotalCount"};//, "ReadTime"
-                            if (tagInfoList.size() > 0) {
-                                try {
-                                    ExcelUtil.initExcel(filePath, fileName, title);
-                                    ExcelUtil.writeObjListToExcel(getRecordData(tagInfoList), filePath + fileName, this);
-                                    showToast("Export success " + "Path=" + filePath + fileName);
-                                    notifySystemToScan(filePath + fileName);
-                                } catch (Exception ex) {
-                                    showToast("Export Failed");
-                                }
-                            } else {
-                                showToast("No Data");
-                            }
-                        }
-
-                        @Override
-                        public void onDeny(String permission, int position) {
-                            Log.e("onDeny", "onDeny");
-                        }
-
-                        @Override
-                        public void onGuarantee(String permission, int position) {
-                            Log.e("onGuarantee", "onGuarantee");
-                        }
-                    });
+            if (ContextCompat.checkSelfPermission(mainActivity, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == PackageManager.PERMISSION_GRANTED) {
+                exportInventoryToExcel();
+            } else {
+                requestStoragePermission();
+            }
         } else {
 //            ToastUtils.showText(getResources().getString(R.string.read_card_being));
+        }
+    }
+
+    private void requestStoragePermission() {
+        if (shouldShowRequestPermissionRationale(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+            showToast(R.string.export_excel_need_permission);
+        }
+        requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_WRITE_EXTERNAL_STORAGE);
+    }
+
+    private void exportInventoryToExcel() {
+        String filePath = Environment.getExternalStorageDirectory() + "/Download/";
+        String fileName = "Tag_" + dateFormat.format(new Date()) + ".xls";
+        String[] title = {"Index", "Type", "EPC", "TID", "UserData", "ReservedData", "TotalCount"};
+        if (tagInfoList.size() > 0) {
+            try {
+                ExcelUtil.initExcel(filePath, fileName, title);
+                ExcelUtil.writeObjListToExcel(getRecordData(tagInfoList), filePath + fileName);
+                showToast("Export success " + "Path=" + filePath + fileName);
+                notifySystemToScan(filePath + fileName);
+            } catch (Exception ex) {
+                showToast("Export Failed");
+            }
+        } else {
+            showToast("No Data");
+        }
+    }
+
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_WRITE_EXTERNAL_STORAGE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                exportInventoryToExcel();
+            } else {
+                showToast(R.string.export_excel_need_permission);
+            }
         }
     }
 

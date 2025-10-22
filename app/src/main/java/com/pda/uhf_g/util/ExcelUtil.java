@@ -19,7 +19,6 @@ import jxl.write.WritableFont;
 import jxl.write.WritableSheet;
 import jxl.write.WritableWorkbook;
 import jxl.write.WriteException;
-import me.weyye.hipermission.PermissionCallback;
 
 public class ExcelUtil {
     public static WritableFont arial14font = null;
@@ -100,7 +99,7 @@ public class ExcelUtil {
     }
 
     @SuppressWarnings("unchecked")
-    public static <T> void writeObjListToExcel(ArrayList<ArrayList<String>> objList, String fileName, PermissionCallback c) {
+    public static <T> void writeObjListToExcel(ArrayList<ArrayList<String>> objList, String fileName) {
         if (objList != null && objList.size() > 0) {
             WritableWorkbook writebook = null;
             InputStream in = null;
