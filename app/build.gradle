@@ -1,3 +1,12 @@
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
+import java.util.Locale
+import org.gradle.api.GradleException
+import org.gradle.api.tasks.Delete
+
 plugins {
     id 'com.android.application'
 }
@@ -34,6 +43,62 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 }
+
+def isWindows = System.getProperty("os.name").toLowerCase(Locale.US).contains("win")
+
+if (isWindows) {
+    def deleteDirectoryWithRetry = { Path directory, int maxAttempts, long baseDelayMillis, logger ->
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (!Files.exists(directory)) {
+                return
+            }
+            try {
+                Files.walkFileTree(directory, new SimpleFileVisitor<Path>() {
+                    @Override
+                    FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                        Files.deleteIfExists(file)
+                        return FileVisitResult.CONTINUE
+                    }
+
+                    @Override
+                    FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                        if (exc != null) {
+                            throw exc
+                        }
+                        Files.deleteIfExists(dir)
+                        return FileVisitResult.CONTINUE
+                    }
+                })
+                return
+            } catch (IOException ex) {
+                if (attempt == maxAttempts) {
+                    throw new GradleException("Unable to delete ${directory} after ${maxAttempts} attempts", ex)
+                }
+                logger.warn("Attempt ${attempt} to delete ${directory} failed: ${ex.message}. Retrying...")
+                System.gc()
+                try {
+                    Thread.sleep(baseDelayMillis * attempt)
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw new GradleException("Interrupted while waiting to retry deleting ${directory}", interruptedException)
+                }
+            }
+        }
+        if (Files.exists(directory)) {
+            throw new GradleException("Unable to delete ${directory} despite retry attempts.")
+        }
+    }
+
+    tasks.named("clean", Delete).configure { deleteTask ->
+        doFirst {
+            Path buildDirPath = project.layout.buildDirectory.asFile.get().toPath()
+            if (Files.exists(buildDirPath)) {
+                deleteDirectoryWithRetry(buildDirPath, 5, 200L, logger)
+            }
+        }
+    }
+}
+
 configurations.configureEach {
     resolutionStrategy.eachDependency { details ->
         if (details.requested.group == 'org.jetbrains.kotlin' &&
@@ -59,22 +124,4 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.9.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    implementation 'androidx.navigation:navigation-fragment:2.3.5'
-    implementation 'androidx.navigation:navigation-ui:2.3.5'
-    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.6.2'
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2'
-    implementation files('libs/reader(1).jar')
-    implementation files('libs/ModuleAPI_J.jar')
-    implementation files('libs/App_Demo_API.jar')
-    implementation files('libs/DeviceAPIver20150204.jar')
-    implementation files('libs/logutil-1.5.1.1.jar')
-    implementation files('libs/UHF67_v3.6.jar')
-    //implementation files('libs/UHF67_v1.0.15.jar')
-    testImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
-    implementation 'net.sourceforge.jexcelapi:jxl:2.6.12'
-    implementation 'com.jakewharton:butterknife:10.2.3'
-    annotationProcessor 'com.jakewharton:butterknife-compiler:10.2.3'
-
 }
