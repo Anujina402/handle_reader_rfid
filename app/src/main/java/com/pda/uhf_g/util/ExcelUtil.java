@@ -1,8 +1,6 @@
 package com.pda.uhf_g.util;
 
 
-import android.os.Environment;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -67,17 +65,27 @@ public class ExcelUtil {
      * @param fileName
      * @param colName
      */
-    public static void initExcel(String path, String fileName, String[] colName) {
+    public static File initExcel(File directory, String fileName, String[] colName) throws IOException {
         format();
         WritableWorkbook workbook = null;
+        File file = new File(directory, fileName);
         try {
-
-            File file = new File(path + fileName);
-            if (!file.exists()) {
-                file.createNewFile();
+            if (!directory.exists() && !directory.mkdirs()) {
+                throw new IOException("Failed to create directory: " + directory.getAbsolutePath());
+            }
+            if (file.exists() && !file.delete()) {
+                throw new IOException("Failed to overwrite file: " + file.getAbsolutePath());
             }
             workbook = Workbook.createWorkbook(file);
-            WritableSheet sheet = workbook.createSheet(fileName, 0);
+            String sheetName = fileName;
+            int extensionIndex = sheetName.lastIndexOf('.');
+            if (extensionIndex > 0) {
+                sheetName = sheetName.substring(0, extensionIndex);
+            }
+            if (sheetName.isEmpty()) {
+                sheetName = "Sheet1";
+            }
+            WritableSheet sheet = workbook.createSheet(sheetName, 0);
             //
             sheet.addCell((WritableCell) new Label(0, 0, fileName, arial14format));
             for (int col = 0; col < colName.length; col++) {
@@ -86,85 +94,68 @@ public class ExcelUtil {
             sheet.setRowView(0, 340); //
             workbook.write();
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new IOException("Failed to initialize excel file", e);
         } finally {
             if (workbook != null) {
                 try {
                     workbook.close();
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    // Ignore close exceptions to preserve the original failure cause.
                 }
             }
         }
+        return file;
     }
 
     @SuppressWarnings("unchecked")
-    public static <T> void writeObjListToExcel(ArrayList<ArrayList<String>> objList, String fileName) {
-        if (objList != null && objList.size() > 0) {
-            WritableWorkbook writebook = null;
-            InputStream in = null;
-            try {
-                WorkbookSettings setEncode = new WorkbookSettings();
-                setEncode.setEncoding(UTF8_ENCODING);
-                in = new FileInputStream(new File(fileName));
-                Workbook workbook = Workbook.getWorkbook(in);
-                writebook = Workbook.createWorkbook(new File(fileName), workbook);
-                WritableSheet sheet = writebook.getSheet(0);
+    public static <T> void writeObjListToExcel(ArrayList<ArrayList<String>> objList, File file) throws IOException {
+        if (objList == null || objList.isEmpty()) {
+            return;
+        }
+        WritableWorkbook writebook = null;
+        InputStream in = null;
+        try {
+            WorkbookSettings setEncode = new WorkbookSettings();
+            setEncode.setEncoding(UTF8_ENCODING);
+            in = new FileInputStream(file);
+            Workbook workbook = Workbook.getWorkbook(in);
+            writebook = Workbook.createWorkbook(file, workbook);
+            WritableSheet sheet = writebook.getSheet(0);
 
-                for (int j = 0; j < objList.size(); j++) {
-                    ArrayList<String> list = (ArrayList<String>) objList.get(j);
-                    for (int i = 0; i < list.size(); i++) {
-                        sheet.addCell(new Label(i, j + 1, list.get(i), arial12format));
-                        if (list.get(i).length() <= 5) {
-                            sheet.setColumnView(i, list.get(i).length() + 8); //
-                        } else {
-                            sheet.setColumnView(i, list.get(i).length() + 5); //
-                        }
-                    }
-                    sheet.setRowView(j + 1, 350); //
-                }
-
-                writebook.write();
-            } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
-                if (writebook != null) {
-                    try {
-                        writebook.close();
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-
-                }
-                if (in != null) {
-                    try {
-                        in.close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
+            for (int j = 0; j < objList.size(); j++) {
+                ArrayList<String> list = (ArrayList<String>) objList.get(j);
+                for (int i = 0; i < list.size(); i++) {
+                    sheet.addCell(new Label(i, j + 1, list.get(i), arial12format));
+                    if (list.get(i).length() <= 5) {
+                        sheet.setColumnView(i, list.get(i).length() + 8); //
+                    } else {
+                        sheet.setColumnView(i, list.get(i).length() + 5); //
                     }
                 }
+                sheet.setRowView(j + 1, 350); //
             }
 
+            writebook.write();
+        } catch (Exception e) {
+            throw new IOException("Failed to write excel file", e);
+        } finally {
+            if (writebook != null) {
+                try {
+                    writebook.close();
+                } catch (Exception e) {
+                    // Ignore close exceptions to preserve the original failure cause.
+                }
+
+            }
+            if (in != null) {
+                try {
+                    in.close();
+                } catch (IOException e) {
+                    // Ignore close exceptions to preserve the original failure cause.
+                }
+            }
         }
     }
-
-    public static String getSDPath() {
-        File sdDir = null;
-        boolean sdCardExist = Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED);
-        if (sdCardExist) {
-            sdDir = Environment.getExternalStorageDirectory();
-        }
-        String dir = sdDir.toString();
-        return dir;
-    }
-
-    public static void makeDir(File dir) {
-        if (!dir.getParentFile().exists()) {
-            makeDir(dir.getParentFile());
-        }
-        dir.mkdir();
-    }
-
 }
 
 

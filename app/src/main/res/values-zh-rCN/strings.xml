@@ -110,6 +110,9 @@
     <string name="help">帮助</string>
     <string name="store">存储</string>
     <string name="export_excel_need_permission">导出excel所需权限</string>
+    <string name="export_success_downloads">导出成功，已保存到下载目录/%1$s</string>
+    <string name="export_success_path">导出成功，路径=%1$s</string>
+    <string name="export_failed">导出失败</string>
     <string name="firmware">固件版本:%s</string>
     <string name="soft_version">软件版本号:%s</string>
     <string name="version_date">修改日期:%s</string>
