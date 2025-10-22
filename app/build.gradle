@@ -16,7 +16,7 @@ android {
 
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
-            output.outputFileName.set("uhfg_v${variant.versionName}.apk")
+            output.outputFileName = "uhfg_v${variant.versionName}.apk"
         }
     }
     buildTypes {
@@ -34,6 +34,20 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 }
+configurations.configureEach {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == 'org.jetbrains.kotlin' &&
+                details.requested.name.startsWith('kotlin-stdlib')) {
+            details.useVersion('1.8.10')
+            details.because('Align Kotlin stdlib artifacts to a single version to avoid duplicate classes')
+        }
+    }
+    resolutionStrategy.dependencySubstitution {
+        substitute module('org.jetbrains.kotlin:kotlin-stdlib-jdk7') using module('org.jetbrains.kotlin:kotlin-stdlib:1.8.10')
+        substitute module('org.jetbrains.kotlin:kotlin-stdlib-jdk8') using module('org.jetbrains.kotlin:kotlin-stdlib:1.8.10')
+    }
+}
+
 
 static String getDate() {
     Date date = new Date()
@@ -41,6 +55,7 @@ static String getDate() {
 }
 
 dependencies {
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.10')
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.9.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
