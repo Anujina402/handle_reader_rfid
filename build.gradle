@@ -2,6 +2,7 @@ import org.gradle.api.GradleException
 import org.gradle.api.tasks.Delete
 
 import java.io.IOException
+import java.nio.charset.StandardCharsets
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
@@ -114,10 +115,84 @@ def deleteRecursivelyWithRetry(Path target, int maxRetries = 5) {
         }
     }
 
+    if (isWindows) {
+        try {
+            logger.warn("Falling back to native deletion for ${target}")
+            deleteWithNativeCommand(target)
+            if (!Files.exists(target)) {
+                return
+            }
+        } catch (IOException ex) {
+            lastError = ex
+        }
+    }
+
     throw new GradleException("Unable to delete ${target} after ${maxRetries + 1} attempts", lastError)
 }
 
 def isWindows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("windows")
+
+String toWindowsLongPath(Path path) {
+    if (path == null) {
+        return null
+    }
+
+    String absolute = path.toAbsolutePath().toString().replace('/', '\\')
+    if (absolute.startsWith('\\\\?\\')) {
+        return absolute
+    }
+    if (absolute.startsWith('\\\\')) {
+        return '\\?\\UNC\\' + absolute.substring(2)
+    }
+    return '\\?\\' + absolute
+}
+
+void deleteWithNativeCommand(Path target) {
+    if (target == null) {
+        return
+    }
+
+    if (!Files.exists(target)) {
+        return
+    }
+
+    String normalizedPath = toWindowsLongPath(target)
+    if (normalizedPath == null) {
+        return
+    }
+
+    List<String> command = [
+            'cmd.exe',
+            '/c',
+            'rmdir /s /q "' + normalizedPath + '"'
+    ]
+
+    Process process = new ProcessBuilder(command)
+            .redirectErrorStream(true)
+            .start()
+
+    String output
+    try {
+        output = process.inputStream.getText(StandardCharsets.UTF_8.name())
+    } finally {
+        process.inputStream.close()
+        process.outputStream.close()
+    }
+
+    int exitCode
+    try {
+        exitCode = process.waitFor()
+    } catch (InterruptedException ex) {
+        Thread.currentThread().interrupt()
+        throw new IOException("Interrupted while invoking native deletion for ${target}", ex)
+    } finally {
+        process.destroy()
+    }
+
+    if (exitCode != 0 || Files.exists(target)) {
+        throw new IOException("Native deletion command failed with exit code ${exitCode}. Output:\n${output}")
+    }
+}
 
 tasks.named("clean", Delete).configure { Delete cleanTask ->
     if (!isWindows) {
