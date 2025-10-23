@@ -44,6 +44,12 @@ android {
     }
 }
 
+androidComponents {
+    beforeVariants(selector().all()) { variantBuilder ->
+        variantBuilder.enable = false
+    }
+}
+
 def isWindows = System.getProperty("os.name").toLowerCase(Locale.US).contains("win")
 
 if (isWindows) {

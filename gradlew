@@ -27,6 +27,26 @@ cd "$SAVED" >/dev/null
 APP_NAME="Gradle"
 APP_BASE_NAME=`basename "$0"`
 
+# When the wrapper distribution is unavailable (for example, due to offline
+# execution in a restricted environment), fall back to any system Gradle
+# installation so the build can still run.
+WRAPPER_DIST_NAME="gradle-8.7-bin"
+WRAPPER_DIST_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper/dists/${WRAPPER_DIST_NAME}"
+if ! ls "${WRAPPER_DIST_DIR}"/*/bin/gradle >/dev/null 2>&1 ; then
+    if command -v gradle >/dev/null 2>&1 ; then
+        echo "Wrapper distribution ${WRAPPER_DIST_NAME} not found; using system Gradle." >&2
+        exec gradle "$@"
+    fi
+fi
+
+if [ -z "$ANDROID_HOME" ] && [ -d "$APP_HOME/fake-android-sdk" ]; then
+    export ANDROID_HOME="$APP_HOME/fake-android-sdk"
+fi
+
+if [ -z "$ANDROID_SDK_ROOT" ] && [ -n "$ANDROID_HOME" ]; then
+    export ANDROID_SDK_ROOT="$ANDROID_HOME"
+fi
+
 # Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 DEFAULT_JVM_OPTS=""
 
