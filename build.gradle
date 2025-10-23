@@ -7,6 +7,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.DosFileAttributeView
 import java.util.Collections
 import java.util.LinkedHashSet
 import java.util.Locale
@@ -34,6 +35,32 @@ task clean(type: Delete) {
     delete rootProject.buildDir
 }
 
+def makeWritable(Path path) {
+    if (path == null) {
+        return
+    }
+
+    try {
+        DosFileAttributeView view = Files.getFileAttributeView(path, DosFileAttributeView)
+        if (view != null) {
+            def attributes = view.readAttributes()
+            if (attributes != null && attributes.isReadOnly()) {
+                view.setReadOnly(false)
+            }
+        }
+    } catch (IOException ignored) {
+        // Ignored - we'll attempt other mechanisms below.
+    } catch (UnsupportedOperationException ignored) {
+        // Not a DOS filesystem, nothing to adjust.
+    }
+
+    try {
+        path.toFile().setWritable(true)
+    } catch (SecurityException ignored) {
+        // If we cannot make the file writable we'll fall back to retry logic later.
+    }
+}
+
 def deleteRecursivelyWithRetry(Path target, int maxRetries = 5) {
     if (target == null || !Files.exists(target)) {
         return
@@ -56,6 +83,7 @@ def deleteRecursivelyWithRetry(Path target, int maxRetries = 5) {
             Files.walkFileTree(target, new SimpleFileVisitor<Path>() {
                 @Override
                 FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    makeWritable(file)
                     Files.deleteIfExists(file)
                     return FileVisitResult.CONTINUE
                 }
@@ -65,7 +93,18 @@ def deleteRecursivelyWithRetry(Path target, int maxRetries = 5) {
                     if (exc != null) {
                         throw exc
                     }
+                    makeWritable(dir)
                     Files.deleteIfExists(dir)
+                    return FileVisitResult.CONTINUE
+                }
+
+                @Override
+                FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+                    if (exc != null) {
+                        makeWritable(file)
+                        Files.deleteIfExists(file)
+                        return FileVisitResult.CONTINUE
+                    }
                     return FileVisitResult.CONTINUE
                 }
             })
