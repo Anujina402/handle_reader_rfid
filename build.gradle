@@ -1,4 +1,16 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
+import org.gradle.api.GradleException
+import org.gradle.api.tasks.Delete
+
+import java.io.IOException
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
+import java.util.Collections
+import java.util.LinkedHashSet
+import java.util.Locale
+
 buildscript {
     repositories {
         google()
@@ -20,4 +32,69 @@ allprojects {
 
 task clean(type: Delete) {
     delete rootProject.buildDir
+}
+
+def deleteRecursivelyWithRetry(Path target, int maxRetries = 5) {
+    if (target == null || !Files.exists(target)) {
+        return
+    }
+
+    IOException lastError = null
+
+    for (int attempt = 0; attempt <= maxRetries; attempt++) {
+        if (attempt > 0) {
+            logger.lifecycle("Retrying deletion of ${target} (attempt ${attempt + 1} of ${maxRetries + 1})")
+            System.gc()
+            try {
+                Thread.sleep(250L * attempt)
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt()
+            }
+        }
+
+        try {
+            Files.walkFileTree(target, new SimpleFileVisitor<Path>() {
+                @Override
+                FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    Files.deleteIfExists(file)
+                    return FileVisitResult.CONTINUE
+                }
+
+                @Override
+                FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                    if (exc != null) {
+                        throw exc
+                    }
+                    Files.deleteIfExists(dir)
+                    return FileVisitResult.CONTINUE
+                }
+            })
+            return
+        } catch (IOException ex) {
+            lastError = ex
+        }
+    }
+
+    throw new GradleException("Unable to delete ${target} after ${maxRetries + 1} attempts", lastError)
+}
+
+def isWindows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("windows")
+
+tasks.named("clean", Delete).configure { Delete cleanTask ->
+    if (!isWindows) {
+        return
+    }
+
+    cleanTask.setDelete(Collections.emptyList())
+
+    cleanTask.doLast {
+        def buildDirs = new LinkedHashSet<Path>()
+        allprojects.each { project ->
+            buildDirs.add(project.buildDir.toPath())
+        }
+
+        buildDirs.each { Path dir ->
+            deleteRecursivelyWithRetry(dir)
+        }
+    }
 }
