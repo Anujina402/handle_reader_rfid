@@ -5,7 +5,6 @@ import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.DosFileAttributeView
 import java.util.Locale
-import org.gradle.api.GradleException
 import org.gradle.api.tasks.Delete
 
 plugins {
@@ -48,70 +47,48 @@ android {
 def isWindows = System.getProperty("os.name").toLowerCase(Locale.US).contains("win")
 
 if (isWindows) {
-    def deleteDirectoryWithRetry = { Path directory, int maxAttempts, long baseDelayMillis, logger ->
-        def clearReadOnlyAttribute = { Path target ->
-            try {
-                DosFileAttributeView attributeView = Files.getFileAttributeView(target, DosFileAttributeView)
-                if (attributeView != null) {
-                    attributeView.setReadOnly(false)
-                }
-            } catch (IOException ignore) {
-                logger.debug("Unable to clear read-only attribute for ${target}: ${ignore.message}")
+    def clearReadOnlyAttribute = { Path target, logger ->
+        try {
+            DosFileAttributeView attributeView = Files.getFileAttributeView(target, DosFileAttributeView)
+            if (attributeView != null) {
+                attributeView.setReadOnly(false)
             }
-        }
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            if (!Files.exists(directory)) {
-                return
-            }
-            try {
-                Files.walkFileTree(directory, new SimpleFileVisitor<Path>() {
-                    @Override
-                    FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                        clearReadOnlyAttribute(dir)
-                        return FileVisitResult.CONTINUE
-                    }
-
-                    @Override
-                    FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                        clearReadOnlyAttribute(file)
-                        Files.deleteIfExists(file)
-                        return FileVisitResult.CONTINUE
-                    }
-
-                    @Override
-                    FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                        if (exc != null) {
-                            throw exc
-                        }
-                        clearReadOnlyAttribute(dir)
-                        Files.deleteIfExists(dir)
-                        return FileVisitResult.CONTINUE
-                    }
-                })
-                return
-            } catch (IOException ex) {
-                if (attempt == maxAttempts) {
-                    throw new GradleException("Unable to delete ${directory} after ${maxAttempts} attempts", ex)
-                }
-                logger.warn("Attempt ${attempt} to delete ${directory} failed: ${ex.message}. Retrying...")
-                System.gc()
-                try {
-                    Thread.sleep(baseDelayMillis * attempt)
-                } catch (InterruptedException interruptedException) {
-                    Thread.currentThread().interrupt()
-                    throw new GradleException("Interrupted while waiting to retry deleting ${directory}", interruptedException)
-                }
-            }
-        }
-        if (Files.exists(directory)) {
-            throw new GradleException("Unable to delete ${directory} despite retry attempts.")
+        } catch (IOException ignore) {
+            logger.debug("Unable to clear read-only attribute for ${target}: ${ignore.message}")
         }
     }
+
+    def clearReadOnlyRecursively = { Path directory, logger ->
+        Files.walkFileTree(directory, new SimpleFileVisitor<Path>() {
+            @Override
+            FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                clearReadOnlyAttribute(dir, logger)
+                return FileVisitResult.CONTINUE
+            }
+
+            @Override
+            FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                clearReadOnlyAttribute(file, logger)
+                return FileVisitResult.CONTINUE
+            }
+
+            @Override
+            FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+                logger.warn("Unable to access ${file} to clear read-only attribute: ${exc.message}")
+                return FileVisitResult.CONTINUE
+            }
+        })
+    }
+
     tasks.named("clean", Delete).configure { deleteTask ->
         doFirst {
             Path buildDirPath = project.layout.buildDirectory.asFile.get().toPath()
             if (Files.exists(buildDirPath)) {
-                deleteDirectoryWithRetry(buildDirPath, 10, 400L, logger)
+                try {
+                    clearReadOnlyRecursively(buildDirPath, logger)
+                } catch (IOException ex) {
+                    logger.warn("Failed to clear read-only attributes before deleting ${buildDirPath}: ${ex.message}")
+                }
             }
         }
     }
